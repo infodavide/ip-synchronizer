@@ -1,5 +1,8 @@
 #!/usr/bin/python3
-# -*- coding: utf-*-
+# -*- coding: utf-8-
+"""
+Simple server used to notify IP changes to the clients
+"""
 import atexit
 import base64
 import hashlib
@@ -33,7 +36,8 @@ def create_rotating_log(path: str, level: str) -> logging.Logger:
     if not os.path.exists(path_obj.parent.absolute()):
         os.makedirs(path_obj.parent.absolute())
     if os.path.exists(path):
-        open(path, 'w').close()
+        with open(path, 'w', encoding='utf-8') as f:
+            f.close()
     else:
         path_obj.touch()
     # noinspection Spellchecker
@@ -53,63 +57,83 @@ def create_rotating_log(path: str, level: str) -> logging.Logger:
 
 
 def cleanup() -> None:
-    global active, s
+    """
+    Cleanup the instances and session
+    """
     active = False
     try:
         if s:
             s.close()
+    # pylint: disable=broad-exception-caught
     except Exception:
         _, _, cleanup_traceback = sys.exc_info()
         traceback.print_tb(cleanup_traceback, limit=1, file=sys.stderr)
+    # pylint: enable=broad-exception-caught
 
 
+# pylint: disable=missing-type-doc
 def signal_handler(sig=None, frame=None) -> None:
+    """
+    Trigger the cleanup when program is exited
+    :param sig: the signal
+    :param frame: the frame
+    """
     cleanup()
+# pylint: enable=missing-type-doc
 
 
 def replace_in_file(username: str, ip: str) -> None:
-    global logger
+    """
+    Update the IP address into the file
+    :param username: the user name
+    :param ip: the IP address
+    """
     written: bool = False
-    with open(FILE, 'r') as f:
+    with open(FILE, 'r', encoding='utf-8') as f:
         lines = f.readlines()
-    with open(FILE, 'w') as f:
+    with open(FILE, 'w', encoding='utf-8') as f:
         for line in lines:
             if not written and username in line:
                 text: str = ip + ' ' + username + '\n'
-                logger.log(logging.DEBUG, 'Writing: %s' % text)
+                logger.debug('Writing: %s', text)
                 f.write(text)
                 written = True
             else:
                 f.write(line)
 
 
-def process(conn, data: bytes) -> None:
-    global logger
-    logger.log(logging.DEBUG, 'Processing')
-    command: str = base64.b64decode(data).decode('ascii')
-    logger.log(logging.DEBUG, 'Parsing command: %s' % command)
+# pylint: disable=redefined-outer-name
+def process(s: socket, d: bytes) -> None:
+    """
+    process the request
+    :param s: the socket
+    :param d: the date of the request
+    """
+    logger.debug('Processing')
+    command: str = base64.b64decode(d).decode('ascii')
+    logger.debug('Parsing command: %s', command)
     parts = command.split('|')
-    logger.log(logging.DEBUG, 'Parts: %s' % repr(parts))
+    logger.debug('Parts: %s', repr(parts))
     if len(parts) == 2:
         authentication = parts[0].split('@')
-        logger.log(logging.DEBUG, 'Authentication: %s' % repr(authentication))
+        logger.debug('Authentication: %s', repr(authentication))
         if len(authentication) == 2:
             username: str = authentication[0]
             password: str = authentication[1]
             if username in USERS and USERS[username] == password:
                 ip = parts[1]
-                logger.log(logging.INFO, 'IP synchronized for: %s to: %s' % (username, ip))
+                logger.info('IP synchronized for: %s to: %s', username, ip)
                 replace_in_file(username, ip)
-                logger.log(logging.INFO, 'Sending ACK')
-                conn.sendall('0K\n'.encode('ascii'))
+                logger.info('Sending ACK')
+                s.sendall('0K\n'.encode('ascii'))
             else:
-                logger.log(logging.DEBUG, 'Bad authentication for user: % ' % username)
+                logger.debug('Bad authentication for user: %s', username)
         else:
-            logger.log(logging.DEBUG, 'Invalid authentication: % ' % command)
+            logger.debug('Invalid authentication: %s', command)
     else:
-        logger.log(logging.DEBUG, 'Invalid command: % ' % command)
-    conn.sendall('BYE\n'.encode('ascii'))
-
+        logger.debug('Invalid command: %s', command)
+    s.sendall('BYE\n'.encode('ascii'))
+# pylint: enable=redefined-outer-name
 
 atexit.register(signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
@@ -117,13 +141,14 @@ logger = create_rotating_log('/tmp/ip_synchronizer_server.log', 'INFO')
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind((HOST, PORT))
     s.listen()
-    logger.log(logging.INFO, 'IP synchronizer server is now listening...')
+    logger.info('IP synchronizer server is now listening...')
     while active:
+        # pylint: disable=broad-exception-caught
         try:
             conn, addr = s.accept()
             with conn:
                 conn.settimeout(5)
-                logger.log(logging.INFO, f"Connection with {addr}")
+                logger.info('Connection with %s', addr)
                 try:
                     data = conn.recv(1024)
                     if not data:
@@ -132,9 +157,10 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 except Exception:
                     _, _, exc_traceback = sys.exc_info()
                     traceback.print_tb(exc_traceback, limit=1, file=sys.stderr)
-                logger.log(logging.INFO, 'IP synchronizer server is still listening...')
+                logger.info('IP synchronizer server is still listening...')
         except Exception:
             _, _, main_traceback = sys.exc_info()
             traceback.print_tb(main_traceback, limit=1, file=sys.stderr)
-logger.log(logging.INFO, 'IP synchronizer server stopped')
-exit(0)
+        # pylint: enable=broad-exception-caught
+logger.info('IP synchronizer server stopped')
+sys.exit(0)

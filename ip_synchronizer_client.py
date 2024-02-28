@@ -1,11 +1,15 @@
 #!/usr/bin/python3
-# -*- coding: utf-*-
+# -*- coding: utf-8-
+"""
+Simple code to set a client receiving IP changes from the specified server
+"""
 import base64
 import hashlib
 import logging
 import os
 import pathlib
 import socket
+import sys
 import urllib.request
 from logging.handlers import RotatingFileHandler
 
@@ -13,7 +17,10 @@ HOST: str = 'host_or_ip_of_your_server'
 PORT: int = 65432
 USERNAME: str = 'entry_to_put_in_the_hosts_file_on_server_side'
 PASSWORD: str = hashlib.md5(b'secret').hexdigest()
-IP: str = urllib.request.urlopen('https://4.ident.me').read().decode('utf8')
+IP: str = ''
+
+with urllib.request.urlopen('https://4.ident.me') as r:
+    IP = r.read().decode('utf8')
 
 
 def create_rotating_log(path: str, level: str) -> logging.Logger:
@@ -28,7 +35,8 @@ def create_rotating_log(path: str, level: str) -> logging.Logger:
     if not os.path.exists(path_obj.parent.absolute()):
         os.makedirs(path_obj.parent.absolute())
     if os.path.exists(path):
-        open(path, 'w').close()
+        with open(path, 'w', encoding='utf-8') as f:
+            f.close()
     else:
         path_obj.touch()
     # noinspection Spellchecker
@@ -48,14 +56,14 @@ def create_rotating_log(path: str, level: str) -> logging.Logger:
 
 
 logger = create_rotating_log('/tmp/ip_synchronizer_client.log', 'INFO')
-logger.log(logging.INFO, 'IP synchronizer client IP: %s' % IP)
+logger.info('IP synchronizer client IP: %s', IP)
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((HOST, PORT))
     s.settimeout(5)
     command: str = USERNAME + '@' + PASSWORD + '|' + IP
-    logger.log(logging.INFO, 'Sending command: %s' % command)
+    logger.info('Sending command: %s', command)
     s.sendall(base64.b64encode(command.encode('ascii')))
     data = s.recv(1024)
-    logger.log(logging.INFO, "Received: %s" % data.decode('ascii'))
-logger.log(logging.INFO, 'IP synchronizer client stopped')
-exit(0)
+    logger.info( "Received: %s", data.decode('ascii'))
+logger.info('IP synchronizer client stopped')
+sys.exit(0)
